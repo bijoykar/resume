@@ -1,0 +1,860 @@
+# Multi-Job Resume Tailoring Workflow
+
+## Overview
+
+Handles 3-5 similar jobs efficiently by consolidating experience discovery while maintaining per-job research depth.
+
+**Architecture:** Shared Discovery + Per-Job Tailoring
+
+**Target Use Case:**
+- Small batches (3-5 jobs)
+- Moderately similar roles (60%+ requirement overlap)
+- Continuous workflow (add jobs incrementally)
+
+## Phase 0: Job Intake & Batch Initialization
+
+**Goal:** Collect all job descriptions and initialize batch structure
+
+**User Interaction:**
+
+```
+SKILL: "Let's set up your multi-job batch. How would you like to provide
+the job descriptions?
+
+1. Paste them all now (recommended for efficiency)
+2. Provide one at a time
+3. Provide URLs to fetch
+
+For each job, I need:
+- Job description (text or URL)
+- Company name (if not in JD)
+- Role title (if not in JD)
+- Optional: Priority (high/medium/low) or notes"
+```
+
+**Data Collection Loop:**
+
+For each job (until user says "done"):
+1. Collect JD text or URL
+2. Collect company name (extract from JD if possible, else ask)
+3. Collect role title (extract from JD if possible, else ask)
+4. Ask: "Priority for this job? (high/medium/low, default: medium)"
+5. Ask: "Any notes about this job? (optional, e.g., 'referral from X')"
+6. Assign job_id: "job-1", "job-2", etc.
+7. Set status: "pending"
+8. Add to batch
+
+**Quick JD Parsing:**
+
+For each job, lightweight extraction (NOT full research yet):
+
+```python
+# Pseudo-code
+def quick_parse_jd(jd_text):
+    return {
+        "requirements_must_have": extract_requirements(jd_text, required=True),
+        "requirements_nice_to_have": extract_requirements(jd_text, required=False),
+        "technical_skills": extract_technical_keywords(jd_text),
+        "soft_skills": extract_soft_skills(jd_text),
+        "domain_areas": identify_domains(jd_text)
+    }
+```
+
+Purpose: Just enough to identify gaps for discovery phase. Full research happens per-job later.
+
+**Batch Initialization:**
+
+Create batch directory structure:
+
+```
+resumes/batches/batch-{YYYY-MM-DD}-{slug}/
+├── _batch_state.json          # State tracking
+├── _aggregate_gaps.md         # Gap analysis (created in Phase 1)
+├── _discovered_experiences.md # Discovery output (created in Phase 2)
+└── (job directories created during per-job processing)
+```
+
+Initialize _batch_state.json:
+
+```json
+{
+  "batch_id": "batch-2025-11-04-job-search",
+  "created": "2025-11-04T10:30:00Z",
+  "current_phase": "intake",
+  "processing_mode": "interactive",
+  "jobs": [
+    {
+      "job_id": "job-1",
+      "company": "Microsoft",
+      "role": "Principal PM - 1ES",
+      "jd_text": "...",
+      "jd_url": "https://...",
+      "priority": "high",
+      "notes": "Internal referral from Alice",
+      "status": "pending",
+      "requirements": ["Kubernetes", "CI/CD", "Leadership"],
+      "gaps": []
+    }
+  ],
+  "discoveries": [],
+  "aggregate_gaps": {}
+}
+```
+
+**Library Initialization:**
+
+Run standard Phase 0 from SKILL.md (library initialization) once for the entire batch.
+
+**Output:**
+
+```
+"Batch initialized with {N} jobs:
+- Job 1: {Company} - {Role} (priority: {priority})
+- Job 2: {Company} - {Role}
+...
+
+Next: Aggregate gap analysis across all jobs.
+Continue? (Y/N)"
+```
+
+**Checkpoint:** User confirms batch is complete before proceeding.
+
+## Phase 1: Aggregate Gap Analysis
+
+**Goal:** Build unified gap list across all jobs to guide single efficient discovery session
+
+**Process:**
+
+**1.1 Extract Requirements from All JDs:**
+
+For each job:
+- Parse requirements (already done in Phase 0 quick parse)
+- Categorize: must-have vs nice-to-have
+- Extract keywords and skill areas
+
+Example output:
+```
+Job 1 (Microsoft 1ES): Kubernetes, CI/CD, cross-functional leadership, Azure
+Job 2 (Google Cloud): Kubernetes, GCP, distributed systems, team management
+Job 3 (AWS): Container orchestration, AWS services, program management
+```
+
+**1.2 Match Against Resume Library:**
+
+For each requirement across ALL jobs:
+1. Search library for matching experiences (using matching-strategies.md)
+2. Score confidence (0-100%)
+3. Flag as gap if confidence < 60%
+
+```python
+# Pseudo-code
+for job in batch.jobs:
+    for requirement in job.requirements:
+        matches = search_library(requirement)
+        best_score = max(match.score for match in matches)
+        if best_score < 60:
+            flag_as_gap(requirement, best_score, job.job_id)
+```
+
+**1.3 Build Aggregate Gap Map:**
+
+Deduplicate gaps across jobs and prioritize:
+
+```python
+# Pseudo-code
+def build_aggregate_gaps(all_gaps):
+    gap_map = {}
+
+    for gap in all_gaps:
+        if gap.name not in gap_map:
+            gap_map[gap.name] = {
+                "appears_in_jobs": [],
+                "best_match": gap.confidence,
+                "priority": 0
+            }
+        gap_map[gap.name]["appears_in_jobs"].append(gap.job_id)
+
+    # Prioritize
+    for gap_name, gap_data in gap_map.items():
+        job_count = len(gap_data["appears_in_jobs"])
+        if job_count >= 3:
+            gap_data["priority"] = 3  # Critical
+        elif job_count == 2:
+            gap_data["priority"] = 2  # Important
+        else:
+            gap_data["priority"] = 1  # Job-specific
+
+    return gap_map
+```
+
+**1.4 Create Gap Analysis Report:**
+
+Generate `_aggregate_gaps.md`:
+
+```markdown
+# Aggregate Gap Analysis
+**Batch:** batch-2025-11-04-job-search
+**Generated:** 2025-11-04T11:00:00Z
+
+## Coverage Summary
+
+- Job 1 (Microsoft): 68% coverage, 5 gaps
+- Job 2 (Google): 72% coverage, 4 gaps
+- Job 3 (AWS): 65% coverage, 6 gaps
+
+## Critical Gaps (appear in 3+ jobs)
+
+### Kubernetes at scale
+- **Appears in:** Jobs 1, 2, 3
+- **Current best match:** 45% confidence
+- **Match source:** "Deployed containerized app for nonprofit" (2023)
+- **Gap:** No production Kubernetes management at scale
+
+### CI/CD pipeline management
+- **Appears in:** Jobs 1, 2, 3
+- **Current best match:** 58% confidence
+- **Match source:** "Set up GitHub Actions workflow" (2024)
+- **Gap:** Limited enterprise CI/CD experience
+
+## Important Gaps (appear in 2 jobs)
+
+### Cloud-native architecture
+- **Appears in:** Jobs 2, 3
+- **Current best match:** 52% confidence
+
+### Cross-functional team leadership
+- **Appears in:** Jobs 1, 2
+- **Current best match:** 67% confidence (not a gap, but could improve)
+
+## Job-Specific Gaps
+
+### Azure-specific experience
+- **Appears in:** Job 1 only
+- **Current best match:** 40% confidence
+
+### GCP experience
+- **Appears in:** Job 2 only
+- **Current best match:** 35% confidence
+
+## Aggregate Statistics
+
+- **Total gaps:** 14
+- **Unique gaps:** 8 (after deduplication)
+- **Critical gaps:** 3
+- **Important gaps:** 4
+- **Job-specific gaps:** 1
+
+## Recommended Discovery Time
+
+- Critical gaps (3 gaps × 5-7 min): 15-20 minutes
+- Important gaps (4 gaps × 3-5 min): 12-20 minutes
+- Job-specific gaps (1 gap × 2-3 min): 2-3 minutes
+
+**Total estimated discovery time:** 30-40 minutes
+
+For 3 similar jobs, this replaces 3 × 15 min = 45 min of sequential discovery.
+```
+
+**1.5 Update Batch State:**
+
+```json
+{
+  "current_phase": "gap_analysis",
+  "aggregate_gaps": {
+    "critical_gaps": [
+      {
+        "gap_name": "Kubernetes at scale",
+        "appears_in_jobs": ["job-1", "job-2", "job-3"],
+        "current_best_match": 45,
+        "priority": 3
+      }
+    ],
+    "important_gaps": [...],
+    "job_specific_gaps": [...]
+  }
+}
+```
+
+**Output to User:**
+
+```
+"Gap analysis complete! Here's what I found:
+
+COVERAGE SUMMARY:
+- Job 1 (Microsoft): 68% coverage, 5 gaps
+- Job 2 (Google): 72% coverage, 4 gaps
+- Job 3 (AWS): 65% coverage, 6 gaps
+
+AGGREGATE GAPS (14 total, 8 unique after deduplication):
+- 3 critical gaps (appear in all jobs) 🔴
+- 4 important gaps (appear in 2 jobs) 🟡
+- 1 job-specific gap 🔵
+
+I recommend a 30-40 minute experience discovery session to address
+these gaps. This will benefit all 3 applications.
+
+Would you like to:
+1. START DISCOVERY - Address gaps through conversational discovery
+2. SKIP DISCOVERY - Proceed with current library (not recommended)
+3. REVIEW GAPS - See detailed gap analysis first
+
+Recommendation: Option 1 or 3 (review then start)"
+```
+
+**Checkpoint:** User chooses next action before proceeding.
+
+## Phase 2: Shared Experience Discovery
+
+**Goal:** Surface undocumented experiences across all gaps through single conversational session
+
+**Core Principle:** Same branching interview from branching-questions.md, but with multi-job context for each question.
+
+**Session Flow:**
+
+**2.1 Start with Highest-Leverage Gaps:**
+
+Process gaps in priority order:
+1. Critical gaps (appear in 3+ jobs) - 5-7 min each
+2. Important gaps (appear in 2 jobs) - 3-5 min each
+3. Job-specific gaps - 2-3 min each
+
+**2.2 Multi-Job Contextualized Questions:**
+
+For each gap, provide multi-job context before branching interview:
+
+**Single-Job Version (from branching-questions.md):**
+```
+"I noticed the job requires Kubernetes experience. Have you worked with Kubernetes?"
+```
+
+**Multi-Job Version (new):**
+```
+"Kubernetes experience appears in 3 of your target jobs (Microsoft, Google, AWS).
+
+This is a HIGH-LEVERAGE gap - addressing it helps multiple applications.
+
+Current best match: 45% confidence ('Deployed containerized app for nonprofit')
+
+Have you worked with Kubernetes or container orchestration?"
+```
+
+**2.3 Conduct Branching Interview:**
+
+For each gap:
+1. Initial probe with multi-job context (see above)
+2. Branch based on answer using branching-questions.md patterns:
+   - YES → Deep dive (scale, challenges, metrics)
+   - INDIRECT → Explore role and transferability
+   - ADJACENT → Explore related experience
+   - PERSONAL → Assess recency and substance
+   - NO → Try broader category or move on
+
+3. Follow up systematically:
+   - "What," "how," "why" questions
+   - Quantify: "Any metrics?"
+   - Contextualize: "Was this production?"
+   - Validate: "This addresses {gap} for {jobs}"
+
+4. Capture immediately with job tags:
+
+**2.4 Capture Structure:**
+
+As experiences are discovered, capture to `_discovered_experiences.md`:
+
+```markdown
+# Discovered Experiences
+**Batch:** batch-2025-11-04-job-search
+**Discovery Date:** 2025-11-04T11:30:00Z
+
+## Experience 1: Kubernetes CI/CD for nonprofit project
+
+**Context:** Side project, 2023-2024, production deployment
+
+**Scope:**
+- GitHub Actions pipeline with Kubernetes deployments
+- 3 nonprofit organizations using it
+- Integrated pytest for testing
+- Managed scaling and monitoring
+
+**Metrics:**
+- 3 production deployments
+- 99.9% uptime over 12 months
+- Reduced deployment time from 2 hours to 15 minutes
+
+**Addresses gaps in:**
+- Jobs 1, 2, 3: Kubernetes at scale
+- Jobs 1, 2: CI/CD pipeline management
+
+**Confidence Improvement:**
+- Kubernetes: 45% → 75% (+30%)
+- CI/CD: 58% → 82% (+24%)
+
+**Bullet Draft:**
+"Designed and implemented Kubernetes-based CI/CD pipeline using GitHub Actions
+and pytest, supporting production deployments for 3 nonprofit organizations with
+99.9% uptime and 87% reduction in deployment time"
+
+**Integration Decision:** [Pending user approval]
+
+---
+
+## Experience 2: Azure migration for university lab
+
+**Context:** Graduate research, 2022-2023
+
+**Scope:**
+- Migrated on-premise compute to Azure VMs
+- Set up Azure DevOps for lab
+- Managed costs and resource allocation
+
+**Metrics:**
+- Migrated 15 TB of data
+- Reduced compute costs by 40%
+- Supported 25 researchers
+
+**Addresses gaps in:**
+- Job 1 only: Azure-specific experience
+
+**Confidence Improvement:**
+- Azure: 40% → 70% (+30%)
+
+**Bullet Draft:**
+"Led Azure cloud migration for university research lab, migrating 15 TB of data
+and implementing Azure DevOps, reducing compute costs by 40% while supporting
+25 researchers"
+
+**Integration Decision:** [Pending user approval]
+```
+
+**2.5 Track Coverage Improvement in Real-Time:**
+
+After each discovery, update user:
+
+```
+"Great! That addresses Kubernetes for all 3 jobs.
+
+UPDATED COVERAGE:
+- Job 1 (Microsoft): 68% → 78% (+10%)
+- Job 2 (Google): 72% → 82% (+10%)
+- Job 3 (AWS): 65% → 75% (+10%)
+
+Remaining critical gaps: 2 (down from 3)
+
+Continue with next gap? (Y/N)"
+```
+
+**2.6 Integration Decision Per Experience:**
+
+After discovery session complete:
+
+```
+"Excellent! I captured 5 new experiences addressing gaps across your jobs.
+
+For each experience, how should I integrate it?
+
+---
+EXPERIENCE 1: Kubernetes CI/CD for nonprofit project
+├─ Addresses: Jobs 1, 2, 3
+└─ Options:
+   1. ADD TO LIBRARY FOR ALL JOBS - Integrate and use everywhere
+   2. ADD TO LIBRARY, USE SELECTIVELY - User picks which jobs
+   3. SKIP - Don't integrate
+
+Your choice for Experience 1? (1/2/3)
+
+---
+EXPERIENCE 2: Azure migration for university lab
+├─ Addresses: Job 1 only
+└─ Options:
+   1. ADD TO LIBRARY - Integrate for Job 1
+   2. SKIP - Not needed
+
+Your choice for Experience 2? (1/2)
+```
+
+**2.7 Enrich Library:**
+
+For each approved experience:
+1. Add to library database
+2. Tag with metadata:
+   - discovered_date
+   - addressed_gaps
+   - used_in_jobs
+   - confidence_improvement
+
+**2.8 Update Batch State:**
+
+```json
+{
+  "current_phase": "discovery",
+  "discoveries": [
+    {
+      "experience_id": "disc-1",
+      "text": "Kubernetes CI/CD for nonprofit project",
+      "context": "Side project, 2023-2024, production",
+      "scope": "GitHub Actions, 3 nonprofits, pytest, monitoring",
+      "addresses_jobs": ["job-1", "job-2", "job-3"],
+      "addresses_gaps": ["Kubernetes", "CI/CD"],
+      "confidence_improvement": {
+        "Kubernetes": {"before": 45, "after": 75},
+        "CI/CD": {"before": 58, "after": 82}
+      },
+      "integrated": true,
+      "bullet_draft": "Designed and implemented..."
+    }
+  ]
+}
+```
+
+**Output:**
+
+```
+"Discovery complete!
+
+SUMMARY:
+- New experiences captured: 5
+- Experiences integrated: 5
+- Average coverage improvement: +16%
+
+FINAL COVERAGE:
+- Job 1 (Microsoft): 68% → 85% (+17%)
+- Job 2 (Google): 72% → 88% (+16%)
+- Job 3 (AWS): 65% → 78% (+13%)
+
+Remaining gaps: 5 (down from 14)
+├─ 0 critical gaps ✓
+├─ 2 important gaps
+└─ 3 job-specific gaps
+
+Ready to proceed with per-job processing? (Y/N)"
+```
+
+**Checkpoint:** User approves before moving to per-job processing.
+
+## Phase 3: Per-Job Processing
+
+**Goal:** Process each job independently through research/template/matching/generation
+
+**Key Insight:** Once discovery is complete, each job can be processed independently using enriched library.
+
+**Processing Modes:**
+
+Before starting, ask user:
+
+```
+"Discovery complete! Now processing each job individually.
+
+PROCESSING MODE:
+1. INTERACTIVE (default) - I'll show you checkpoints for each job
+   (template approval, content mapping approval)
+
+2. EXPRESS - I'll auto-approve templates and matching using best judgment,
+   you review all final resumes together
+
+Recommendation: INTERACTIVE for first 1-2 jobs, then switch to EXPRESS
+if you like the pattern.
+
+Which mode for Job 1? (1/2)"
+```
+
+**3.1 Per-Job Loop:**
+
+For each job in batch (job.status == "pending"):
+
+1. Set job.status = "in_progress"
+2. Set job.current_phase = "research"
+3. Create job directory: `resumes/batches/{batch_id}/job-{N}-{company-slug}/`
+4. Process through phases (see below)
+5. Set job.status = "completed"
+6. Set job.files_generated = true
+7. Move to next job
+
+**3.2 Phase 3A: Research (Per-Job)**
+
+**Same depth as single-job workflow (SKILL.md Phase 1):**
+
+```
+Job {N}/{total}: {Company} - {Role}
+├─ Company research via WebSearch (mission, values, culture, news)
+├─ Role benchmarking via LinkedIn (find 3-5 similar role holders)
+├─ Success profile synthesis
+└─ Checkpoint (if INTERACTIVE mode): Present success profile to user
+```
+
+Save to: `job-{N}-{company-slug}/success_profile.md`
+
+**INTERACTIVE Mode:**
+```
+"Job 1: Microsoft - Principal PM
+
+Based on my research, here's what makes candidates successful for this role:
+
+{SUCCESS_PROFILE_SUMMARY}
+
+Key findings:
+- {Finding 1}
+- {Finding 2}
+- {Finding 3}
+
+Does this match your understanding? Any adjustments?
+
+(Y to proceed / provide feedback)"
+```
+
+**EXPRESS Mode:**
+- Generate success profile
+- Save to file
+- Proceed automatically (no checkpoint)
+
+**3.3 Phase 3B: Template Generation (Per-Job)**
+
+**Same process as single-job workflow (SKILL.md Phase 2):**
+
+```
+├─ Role consolidation decisions
+├─ Title reframing options
+├─ Bullet allocation
+└─ Checkpoint (if INTERACTIVE): Approve template structure
+```
+
+Save to: `job-{N}-{company-slug}/template.md`
+
+**INTERACTIVE Mode:**
+```
+"Here's the optimized resume structure for {Company} - {Role}:
+
+STRUCTURE:
+{Section order and rationale}
+
+ROLE CONSOLIDATION:
+{Decisions with options}
+
+TITLE REFRAMING:
+{Proposed titles with alternatives}
+
+BULLET ALLOCATION:
+{Allocation with rationale}
+
+Approve? (Y/N/adjust)"
+```
+
+**EXPRESS Mode:**
+- Generate template using best judgment
+- Save to file
+- Proceed automatically
+
+**3.4 Phase 3C: Content Matching (Per-Job)**
+
+**Same process as single-job workflow (SKILL.md Phase 3):**
+
+Uses enriched library (includes discovered experiences from Phase 2)
+
+```
+├─ Match content to template slots
+├─ Confidence scoring (Direct/Transferable/Adjacent)
+├─ Reframing suggestions
+├─ Gap identification (should be minimal after discovery)
+└─ Checkpoint (if INTERACTIVE): Approve content mapping
+```
+
+Save to: `job-{N}-{company-slug}/content_mapping.md`
+
+**INTERACTIVE Mode:**
+```
+"Content matched for {Company} - {Role}:
+
+COVERAGE SUMMARY:
+- Direct matches: {N} bullets ({%}%)
+- Transferable: {N} bullets ({%}%)
+- Adjacent: {N} bullets ({%}%)
+- Gaps: {N} ({%}%)
+
+OVERALL JD COVERAGE: {%}%
+
+[Show detailed mapping]
+
+Approve? (Y/N/adjust)"
+```
+
+**EXPRESS Mode:**
+- Generate mapping automatically
+- Use highest confidence matches
+- Save to file
+- Proceed automatically
+
+**3.5 Phase 3D: Generation (Per-Job)**
+
+**Same process as single-job workflow (SKILL.md Phase 4):**
+
+```
+├─ Generate Markdown resume
+├─ Generate DOCX resume (using document-skills:docx)
+├─ Generate Report
+└─ No checkpoint - just generate files
+```
+
+Output files:
+- `{Name}_{Company}_{Role}_Resume.md`
+- `{Name}_{Company}_{Role}_Resume.docx`
+- `{Name}_{Company}_{Role}_Resume_Report.md`
+
+All saved to: `job-{N}-{company-slug}/`
+
+**3.6 Progress Tracking:**
+
+After each job completes:
+
+```
+"✓ Job {N}/{total} complete: {Company} - {Role}
+
+QUALITY METRICS:
+- JD Coverage: {%}%
+- Direct Matches: {%}%
+- Files: ✓ MD ✓ DOCX ✓ Report
+
+Jobs remaining: {total - N}
+Estimated time: ~{N * 8} minutes
+
+Continue to Job {N+1}? (Y/N/pause)"
+```
+
+**3.7 Pause/Resume Support:**
+
+If user says "pause":
+```
+"Progress saved!
+
+CURRENT STATE:
+- Jobs completed: {N}
+- Jobs remaining: {total - N}
+- Next: Job {N+1} - {Company} - {Role}
+
+To resume later, say 'resume batch {batch_id}' or 'continue my batch'."
+```
+
+Save batch state with current progress.
+
+## Phase 4: Batch Finalization
+
+**Goal:** Present all resumes for review, handle batch-level actions, update library
+
+**4.1 Generate Batch Summary:**
+
+Create `_batch_summary.md` with job summaries, statistics, discovery impact, coverage metrics, and recommendations.
+
+**4.2 Present to User:**
+
+```
+"All {N} resumes generated!
+
+JOB SUMMARIES:
+[Tabular summary for each job showing coverage, matches, key strengths, remaining gaps]
+
+BATCH STATISTICS:
+- New experiences discovered: {N}
+- Average coverage improvement: {%}%
+- Total files: {N × 3} (per job: MD + DOCX + Report)
+- Time saved vs sequential: ~{time} minutes
+
+FILES: resumes/batches/{batch_id}/
+
+REVIEW OPTIONS:
+1. APPROVE ALL - Save all resumes to library
+2. REVIEW INDIVIDUALLY - Approve/revise each resume separately
+3. REVISE BATCH - Make changes across multiple resumes
+4. SAVE BUT DON'T UPDATE LIBRARY - Keep files, don't enrich library
+
+Which option? (1/2/3/4)"
+```
+
+**4.3 Handle Review Option 1 (APPROVE ALL):**
+
+1. Copy all resume files to library directory
+2. Add all discovered experiences to library database
+3. Tag with metadata (batch_id, target_company, target_role, etc.)
+4. Rebuild library indices
+5. Update batch state to "completed"
+
+**4.4 Handle Review Option 2 (REVIEW INDIVIDUALLY):**
+
+For each job: Show JD requirements vs resume coverage, ask for approval, handle revisions.
+
+**4.5 Handle Review Option 3 (REVISE BATCH):**
+
+Collect batch-level revision request, apply across affected jobs, re-present for approval.
+
+**4.6 Handle Review Option 4 (SAVE BUT DON'T UPDATE LIBRARY):**
+
+Keep files in batch directory, preserve batch state, don't update library.
+
+## Incremental Batch Support
+
+**Goal:** Add new jobs to existing batches without re-doing completed work
+
+**Scenario:** User processes 3 jobs today, finds 2 more jobs next week
+
+**Detection:** User says "Add another job to my batch", "I found 2 more jobs", etc.
+
+**Process:**
+1. Load existing batch state
+2. Intake new jobs (append to batch)
+3. Run incremental gap analysis (only new gaps not covered by previous discoveries)
+4. Run incremental discovery (only ask about new gaps)
+5. Process new jobs through Phase 3
+6. Update batch summary
+
+**Key Benefit:** Don't re-ask questions already answered in previous session. Time saved grows with each incremental addition.
+
+## Error Handling & Edge Cases
+
+### Edge Case 1: Jobs Are More Diverse Than Expected
+
+**Detection:** During gap analysis, <40% gap overlap between jobs
+
+**Handling:** Recommend splitting into sub-batches by role similarity. Offer to continue unified or split.
+
+### Edge Case 2: Discovery Reveals Experience Relevant to Only 1 Job
+
+**Handling:** Tag experience as job-specific. Offer to explore broader transferable aspects.
+
+### Edge Case 3: One Job's Research Fails
+
+**Handling:** Fall back to JD-only for that job. Don't block other jobs in batch.
+
+### Edge Case 4: User Wants to Add/Remove Jobs Mid-Process
+
+**Add:** Run quick gap check for new job, incremental discovery if needed, then process.
+
+**Remove:** Keep discovered experiences in library. Archive (don't delete) generated files.
+
+### Edge Case 5: Library Update Conflicts
+
+**Handling:** Offer individual approval, batch approval (wait until all done), or selective approval.
+
+### Edge Case 6: Batch Processing Interrupted
+
+**Auto-Save:** After each job completes, after discovery phase, after gap analysis, after checkpoints.
+
+**Resume:** User says "resume batch {batch_id}" — pick up exactly where left off.
+
+### Edge Case 7: No Gaps Found
+
+**Handling:** Skip discovery, proceed directly to per-job processing. Note high library coverage.
+
+### Error Recovery Principles
+
+1. **Never lose progress:** Auto-save batch state frequently
+2. **Partial success is success:** Some jobs completing is better than none
+3. **Transparent failures:** Always explain what went wrong and options
+4. **Graceful degradation:** Fall back to JD-only, single-job mode, or skip if needed
+5. **User control:** Always provide options, never force a path
+
+### Graceful Degradation Paths
+
+```
+Research fails → Fall back to JD-only analysis
+Library too small → Emphasize discovery phase
+WebSearch unavailable → Use cached data or skip research
+DOCX generation fails → Provide markdown only
+One job fails → Continue with others, revisit failed job later
+```

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python build_resume.py)",
+      "Bash(python -c ' *)",
+      "Bash(cp \"/c/xampp/htdocs/resume/deba.PNG\" docx/word/media/image1.png)",
+      "Bash(sed -i 's/<a:prstGeom prst=\"rect\"\\\\/>/<a:prstGeom prst=\"ellipse\"\\\\/>/' docx/word/document.xml)"
+    ]
+  }
+}
