@@ -8,11 +8,14 @@ ATS-friendly layout, the mojibake characters from the original are repaired,
 wording is tightened, and Passport / PAN numbers are intentionally left out.
 
 Outputs:
-  Samrat_Chakraborty_Software_Dev_Manager_ATS.docx  (plain, ATS-safe)
+  Samrat_Chakraborty_Software_Dev_Manager_ATS.docx         (plain, ATS-safe)
+  Samrat_Chakraborty_Software_Dev_Manager_With_Photo.docx  (photo in header)
 """
 
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
@@ -22,7 +25,8 @@ LT_NAVY  = RGBColor(0x34, 0x4E, 0x8A)
 MID_GREY = RGBColor(0x6B, 0x6B, 0x6B)
 BODY     = RGBColor(0x22, 0x22, 0x22)
 
-BASE = 'C:/xampp/htdocs/resume/'
+BASE  = 'C:/xampp/htdocs/resume/'
+PHOTO = BASE + 'samrat.png'
 
 
 # -- Helpers ---------------------------------------------------
@@ -55,6 +59,15 @@ def set_right_tab(para, pos_in=6.3):
     tab.set(qn('w:pos'), str(int(pos_in * 1440)))
     tabs.append(tab)
     pPr.append(tabs)
+
+
+def no_borders(tbl):
+    tblBorders = OxmlElement('w:tblBorders')
+    for side in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        el = OxmlElement('w:' + side)
+        el.set(qn('w:val'), 'none')
+        tblBorders.append(el)
+    tbl._tbl.tblPr.append(tblBorders)
 
 
 def ar(para, text, size=10, bold=False, italic=False, clr=None):
@@ -111,8 +124,8 @@ def labelled(doc, label, content, before=2, after=2, size=9.5):
 # -- Content ---------------------------------------------------
 NAME     = 'SAMRAT CHAKRABORTY'
 HEADLINE = ('Engineering Software Development Manager  \u00b7  Tech Lead  \u00b7  '
-            'Solution Designer  \u00b7  Scrum Master  \u00b7  Java / Spring Boot  \u00b7  '
-            'Telecom OSS/BSS')
+            'Solution Designer  \u00b7  Scrum Master  \u00b7  Java\u00a0/\u00a0Spring\u00a0Boot  \u00b7  '
+            'Telecom\u00a0OSS/BSS')
 CONTACT1 = '+91-8017499587  |  meetsamrat08@gmail.com'
 CONTACT2 = ('linkedin.com/in/samrat-chakraborty-41b14446  |  AWS Certified Cloud Practitioner  |  '
             'Professional Scrum Master')
@@ -355,7 +368,7 @@ PERSONAL = [
 
 
 # -- Build -----------------------------------------------------
-def build(output_path):
+def build(output_path, with_photo=False):
     doc = Document()
     doc.styles['Normal'].font.name = 'Calibri'
     doc.styles['Normal'].font.size = Pt(10)
@@ -371,21 +384,43 @@ def build(output_path):
     sec.right_margin  = Cm(1.8)
 
     # -- HEADER ------------------------------------------------
-    p = doc.add_paragraph()
-    sp(p, before=0, after=1)
-    ar(p, NAME, size=24, bold=True, clr=NAVY)
+    if with_photo:
+        tbl = doc.add_table(rows=1, cols=2)
+        tbl.allow_autofit    = False
+        tbl.columns[0].width = Cm(14.4)
+        tbl.columns[1].width = Cm(3.0)
+        no_borders(tbl)
 
-    p = doc.add_paragraph()
+        left, right = tbl.rows[0].cells
+        left.width, right.width = Cm(14.4), Cm(3.0)
+        left.vertical_alignment  = WD_ALIGN_VERTICAL.CENTER
+        right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        host = left
+        p = left.paragraphs[0]
+    else:
+        host = doc
+        p = doc.add_paragraph()
+
+    sp(p, before=0, after=1)
+    ar(p, NAME, size=23 if with_photo else 24, bold=True, clr=NAVY)
+
+    p = host.add_paragraph()
     sp(p, before=0, after=4)
     add_bottom_border(p, sz=6)
-    ar(p, HEADLINE, size=9.5, clr=LT_NAVY)
+    ar(p, HEADLINE, size=8.5 if with_photo else 9.5, clr=LT_NAVY)
 
-    p = doc.add_paragraph()
+    p = host.add_paragraph()
     sp(p, before=4, after=0)
-    ar(p, CONTACT1, size=9, clr=MID_GREY)
-    p = doc.add_paragraph()
+    ar(p, CONTACT1, size=8.5 if with_photo else 9, clr=MID_GREY)
+    p = host.add_paragraph()
     sp(p, before=1, after=2)
-    ar(p, CONTACT2, size=9, clr=MID_GREY)
+    ar(p, CONTACT2, size=8.5 if with_photo else 9, clr=MID_GREY)
+
+    if with_photo:
+        p = right.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        sp(p, before=0, after=0)
+        p.add_run().add_picture(PHOTO, width=Cm(2.8))
 
     # -- PROFESSIONAL SUMMARY ----------------------------------
     heading(doc, 'Professional Summary', before=6)
@@ -481,4 +516,5 @@ def build(output_path):
     print('Saved: ' + output_path)
 
 
-build(BASE + 'Samrat_Chakraborty_Software_Dev_Manager_ATS.docx')
+build(BASE + 'Samrat_Chakraborty_Software_Dev_Manager_ATS.docx',        with_photo=False)
+build(BASE + 'Samrat_Chakraborty_Software_Dev_Manager_With_Photo.docx', with_photo=True)
