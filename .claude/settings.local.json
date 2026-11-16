@@ -5,7 +5,8 @@
       "Bash(python -c ' *)",
       "Bash(cp \"/c/xampp/htdocs/resume/deba.PNG\" docx/word/media/image1.png)",
       "Bash(sed -i 's/<a:prstGeom prst=\"rect\"\\\\/>/<a:prstGeom prst=\"ellipse\"\\\\/>/' docx/word/document.xml)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(unzip -l aakash.docx)"
     ]
   }
 }
